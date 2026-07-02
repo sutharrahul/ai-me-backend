@@ -96,3 +96,6 @@ websockets==16.0
 wrapt==2.2.2
 xxhash==3.8.0
 zstandard==0.25.0
+
+# Additional monitoring dependencies
+prometheus-client==0.19.0
