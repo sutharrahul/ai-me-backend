@@ -1,6 +1,11 @@
+venv
 .venv
 __pycache__
 *.pyc
 .pytest_cache
 data/documents.json
 .env
+.git
+.claude
+logs
+tests
