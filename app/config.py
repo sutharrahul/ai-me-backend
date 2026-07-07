@@ -13,6 +13,7 @@ automatically maps `my_setting` -> `MY_SETTING`).
 
 from functools import lru_cache
 from pathlib import Path
+from pydantic import SecretStr
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -40,7 +41,8 @@ class Settings(BaseSettings):
     # CORS - which frontend origin(s) are allowed to call this API from the
     # browser. Add more origins here (or via CORS_ORIGINS in .env) if you
     # deploy the frontend somewhere else.
-    cors_origins: list[str] = ["http://localhost:3000"]
+    #  cors_origins: list[str] = ["http://localhost:3000"]
+    cors_origins: list[str]
 
     # Provider selection: "gemini" (default), "openai", or "ollama". Lets
     # you switch which AI provider powers embeddings/chat without touching
@@ -53,7 +55,8 @@ class Settings(BaseSettings):
 
     # Google Gemini (via LangChain) - the default provider. Get a free key
     # at https://aistudio.google.com/apikey and set GOOGLE_API_KEY in .env.
-    google_api_key: str = ""
+    # google_api_key: str = ""
+    google_api_key: SecretStr
     gemini_embedding_model: str = "models/gemini-embedding-001"
     gemini_chat_model: str = "gemini-2.5-flash"
     # Gemini's embedding model can output vectors of different sizes; we
@@ -91,7 +94,8 @@ class Settings(BaseSettings):
 
     # Leave empty for a local/self-hosted Qdrant with no auth (the Docker
     # setup here); set it if you point at Qdrant Cloud instead.
-    qdrant_api_key: str = ""
+    # qdrant_api_key: str = ""
+    qdrant_api_key: SecretStr
 
     # Storage - local filesystem paths used by the app.
     data_dir: Path = BASE_DIR / "data"
