@@ -4,8 +4,8 @@ This is the last step of the RAG pipeline: given a user's question and the
 chunks retrieved from the vector store, ask an LLM to produce a natural-
 language answer that's grounded in that retrieved context (rather than the
 model's own possibly-outdated or made-up knowledge). `LLMClient` is an
-abstraction over the actual model provider (Gemini vs OpenAI vs Ollama),
-so `RagPipeline` never needs to know which one is active.
+abstraction over the actual model provider, so `RagPipeline` never needs
+to know which one is active.
 """
 
 from __future__ import annotations
@@ -14,9 +14,6 @@ from abc import ABC, abstractmethod
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_ollama import ChatOllama
-from openai import OpenAI
-from openai.types.chat import ChatCompletionMessageParam
 
 from app.config import Settings
 from app.services.vector_store import ScoredChunk
@@ -36,17 +33,20 @@ class LLMClient(ABC):
 
 class GeminiLLMClient(LLMClient):
     """Chat completion backed by Google's Gemini models via LangChain.
-    This is the default provider (`llm_provider="gemini"` in config)."""
+    This is the only supported provider (`llm_provider="gemini"` in config)."""
 
     def __init__(self, settings: Settings):
-        self._client = ChatGoogleGenerativeAI(
-            model=settings.gemini_chat_model,
-            google_api_key=settings.google_api_key.get_secret_value(),
+        client_kwargs: dict[str, object] = {
+            "model": settings.gemini_chat_model,
             # Low temperature keeps answers factual/consistent rather than
             # creative, which matters more for a grounded Q&A assistant
             # than for open-ended writing.
-            temperature=0.2,
-        )
+            "temperature": 0.2,
+        }
+        api_key = settings.resolved_google_api_key()
+        if api_key:
+            client_kwargs["google_api_key"] = api_key
+        self._client = ChatGoogleGenerativeAI(**client_kwargs)
         self._system_prompt = settings.system_prompt
 
     def generate_answer(self, question: str, chunks: list[ScoredChunk]) -> str:
@@ -71,76 +71,9 @@ class GeminiLLMClient(LLMClient):
         return content if isinstance(content, str) else str(content)
 
 
-class OpenAILLMClient(LLMClient):
-    """Chat completion backed by OpenAI's models. Used when
-    `llm_provider="openai"` in config."""
-
-    def __init__(self, settings: Settings):
-        self._client = OpenAI(api_key=settings.openai_api_key)
-        self._model = settings.chat_model
-        self._system_prompt = settings.system_prompt
-
-    def generate_answer(self, question: str, chunks: list[ScoredChunk]) -> str:
-        context = _build_context(chunks)
-        messages: list[ChatCompletionMessageParam] = [
-            {"role": "system", "content": self._system_prompt},
-            {
-                "role": "user",
-                "content": (
-                    f"Context:\n{context}\n\n"
-                    f"Question: {question}\n\n"
-                    "Answer the question using only the context above."
-                ),
-            },
-        ]
-        response = self._client.chat.completions.create(
-            model=self._model,
-            messages=messages,
-            temperature=0.2,
-        )
-        return response.choices[0].message.content or ""
-
-
-class OllamaLLMClient(LLMClient):
-    """Chat completion backed by a local Ollama model via LangChain. Used
-    when `llm_provider="ollama"` in config - handy for testing without an
-    API key/cost. Requires `ollama serve` running locally with the model
-    already pulled (e.g. `ollama pull llama3.2`)."""
-
-    def __init__(self, settings: Settings):
-        self._client = ChatOllama(
-            model=settings.ollama_chat_model,
-            base_url=settings.ollama_base_url,
-            temperature=0.2,
-        )
-        self._system_prompt = settings.system_prompt
-
-    def generate_answer(self, question: str, chunks: list[ScoredChunk]) -> str:
-        context = _build_context(chunks)
-        messages = [
-            SystemMessage(content=self._system_prompt),
-            HumanMessage(
-                content=(
-                    f"Context:\n{context}\n\n"
-                    f"Question: {question}\n\n"
-                    "Answer the question using only the context above."
-                )
-            ),
-        ]
-        response = self._client.invoke(messages)
-        content = response.content
-        return content if isinstance(content, str) else str(content)
-
-
 def get_llm_client(settings: Settings) -> LLMClient:
-    """Factory that returns the configured LLM client. This is the single
-    place that decides Gemini vs OpenAI vs Ollama based on
-    `settings.llm_provider`, mirroring `get_embedding_provider` in
-    `embeddings.py` - see `dependencies.py` for where it's called."""
-    if settings.llm_provider == "openai":
-        return OpenAILLMClient(settings)
-    if settings.llm_provider == "ollama":
-        return OllamaLLMClient(settings)
+    """Factory that returns the configured LLM client. Currently only Gemini
+    is supported. See `dependencies.py` for where this is called."""
     return GeminiLLMClient(settings)
 
 

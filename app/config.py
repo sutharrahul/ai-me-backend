@@ -11,9 +11,12 @@ the matching UPPER_SNAKE_CASE variable in `.env` to override it (pydantic
 automatically maps `my_setting` -> `MY_SETTING`).
 """
 
+import os
 from functools import lru_cache
 from pathlib import Path
-from pydantic import SecretStr
+from typing import Self
+
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -21,16 +24,19 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # to the data/ folder regardless of the current working directory the app
 # is started from.
 BASE_DIR = Path(__file__).resolve().parent.parent
+ENV_FILE = BASE_DIR / ".env"
 
 
 class Settings(BaseSettings):
-    # Tells pydantic-settings to read variables from `backend/.env` (in
-    # addition to real environment variables, which always take priority)
-    # and to ignore any extra/unknown variables instead of raising errors.
+    # Loads `backend/.env` when present (local dev). On deploy, `.env` is
+    # usually omitted from the image and real environment variables from
+    # the host/platform take priority. `populate_by_name` lets aliases like
+    # GEMINI_API_KEY map onto `google_api_key`.
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=ENV_FILE if ENV_FILE.exists() else None,
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
 
     # General
@@ -41,36 +47,41 @@ class Settings(BaseSettings):
     # CORS - which frontend origin(s) are allowed to call this API from the
     # browser. Add more origins here (or via CORS_ORIGINS in .env) if you
     # deploy the frontend somewhere else.
-    #  cors_origins: list[str] = ["http://localhost:3000"]
-    cors_origins: list[str]
+    cors_origins: list[str] = ["http://localhost:3000"]
 
-    # Provider selection: "gemini" (default), "openai", or "ollama". Lets
-    # you switch which AI provider powers embeddings/chat without touching
-    # any code - just flip EMBEDDING_PROVIDER / LLM_PROVIDER in .env.
-    # "ollama" is handy for local testing without any API key/cost, as
-    # long as `ollama serve` is running with the models pulled locally.
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, value: object) -> object:
+        """Accept JSON (`["https://a.com"]`) or comma-separated URLs from
+        deployment platforms that don't support JSON env values."""
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped.startswith("["):
+                return value
+            return [origin.strip() for origin in stripped.split(",") if origin.strip()]
+        return value
+
+    # Provider selection: currently only "gemini" is supported.
+    # Flip EMBEDDING_PROVIDER / LLM_PROVIDER in .env if needed.
     embedding_provider: str = "gemini"
     llm_provider: str = "gemini"
 
 
     # Google Gemini (via LangChain) - the default provider. Get a free key
-    # at https://aistudio.google.com/apikey and set GOOGLE_API_KEY in .env.
-    # google_api_key: str = ""
-    google_api_key: SecretStr
+    # at https://aistudio.google.com/apikey and set GOOGLE_API_KEY (or
+    # GEMINI_API_KEY) in .env / your deployment platform's env vars.
+    google_api_key: SecretStr = Field(
+        default=SecretStr(""),
+        validation_alias=AliasChoices(
+            "google_api_key", "GOOGLE_API_KEY", "GEMINI_API_KEY"
+        ),
+    )
     gemini_embedding_model: str = "models/gemini-embedding-001"
     gemini_chat_model: str = "gemini-2.5-flash"
     # Gemini's embedding model can output vectors of different sizes; we
     # pin it to a fixed dimension so the Postgres `vector` column has a
     # consistent size (required for pgvector indexing).
     embedding_dimensions: int = 768
-
-    # Ollama (local models, via LangChain) - free/offline provider used
-    # when embedding_provider/llm_provider is set to "ollama". Requires
-    # `ollama serve` running locally and the models pulled beforehand,
-    # e.g. `ollama pull llama3.2` / `ollama pull nomic-embed-text`.
-    ollama_base_url: str = "http://localhost:11434"
-    ollama_chat_model: str = "gemma3:4b"
-    ollama_embedding_model: str = "nomic-embed-text"
 
     # Vector store selection: "postgres" (default, pgvector) or "qdrant".
     # Flip VECTOR_STORE_PROVIDER in .env to switch without touching code -
@@ -94,8 +105,7 @@ class Settings(BaseSettings):
 
     # Leave empty for a local/self-hosted Qdrant with no auth (the Docker
     # setup here); set it if you point at Qdrant Cloud instead.
-    # qdrant_api_key: str = ""
-    qdrant_api_key: SecretStr
+    qdrant_api_key: SecretStr = SecretStr("")
 
     # Storage - local filesystem paths used by the app.
     data_dir: Path = BASE_DIR / "data"
@@ -175,6 +185,38 @@ class Settings(BaseSettings):
                 "context, say you don't have that information instead of "
                 "making something up."
             )
+
+    def resolved_google_api_key(self) -> str:
+        """Returns the Gemini API key from settings, falling back to raw
+        process env vars. On deploy, platforms inject GOOGLE_API_KEY or
+        GEMINI_API_KEY directly; this avoids losing the key when an empty
+        placeholder in .env would otherwise override the real env var."""
+        key = self.google_api_key.get_secret_value().strip()
+        if key:
+            return key
+        return (
+            os.environ.get("GOOGLE_API_KEY", "").strip()
+            or os.environ.get("GEMINI_API_KEY", "").strip()
+        )
+
+    @model_validator(mode="after")
+    def validate_provider_keys(self) -> Self:
+        """Fail fast at startup with a clear message when the Gemini API
+        key is missing, instead of a cryptic LangChain error on the first
+        chat/ingest request."""
+        if self.embedding_provider == "gemini" and not self.resolved_google_api_key():
+            raise ValueError(
+                "GOOGLE_API_KEY (or GEMINI_API_KEY) is required when "
+                "EMBEDDING_PROVIDER=gemini. Set it in your deployment "
+                "platform's environment variables."
+            )
+        if self.llm_provider == "gemini" and not self.resolved_google_api_key():
+            raise ValueError(
+                "GOOGLE_API_KEY (or GEMINI_API_KEY) is required when "
+                "LLM_PROVIDER=gemini. Set it in your deployment platform's "
+                "environment variables."
+            )
+        return self
 
     def ensure_directories(self) -> None:
         """Creates the local data folders on disk if they don't already

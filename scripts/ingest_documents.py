@@ -95,12 +95,12 @@ def main() -> None:
     # Fail fast with a clear message rather than letting the first Gemini/
     # OpenAI API call fail with a cryptic auth error deep in the pipeline.
     # Ollama needs no API key (it's local), so it's exempt from this check.
-    if settings.embedding_provider == "openai" and not settings.openai_api_key:
+    if settings.embedding_provider == "openai" and not settings.openai_api_key.get_secret_value().strip():
         logger.error(
             "OPENAI_API_KEY is not set. Configure backend/.env before ingesting."
         )
         raise SystemExit(1)
-    if settings.embedding_provider == "gemini" and not settings.google_api_key.get_secret_value():
+    if settings.embedding_provider == "gemini" and not settings.resolved_google_api_key():
         logger.error(
             "GOOGLE_API_KEY is not set. Configure backend/.env before ingesting."
         )
