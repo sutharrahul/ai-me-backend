@@ -24,3 +24,14 @@ def chunk_text(text: str, chunk_size: int = 500) -> List[str]:
         chunks.append(' '.join(current_chunk))
     
     return chunks
+
+def get_text_statistics(text: str) -> dict:
+    """Calculate statistics about text."""
+    words = text.split()
+    sentences = text.split('.')
+    
+    return {
+        'word_count': len(words),
+        'sentence_count': len([s for s in sentences if s.strip()]),
+        'avg_word_length': sum(len(w) for w in words) / len(words) if words else 0,
+    }
