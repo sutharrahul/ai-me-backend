@@ -170,7 +170,7 @@ class QdrantVectorStoreBackend(VectorStoreBackend):
     def __init__(self, settings: Settings):
         self._client = QdrantClient(
             url=settings.qdrant_url,
-            api_key=settings.qdrant_api_key or None,
+            api_key=settings.qdrant_api_key.get_secret_value() or None,
             check_compatibility=False
         )
         self._collection_name = settings.vector_collection_name

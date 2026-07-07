@@ -41,7 +41,7 @@ class GeminiLLMClient(LLMClient):
     def __init__(self, settings: Settings):
         self._client = ChatGoogleGenerativeAI(
             model=settings.gemini_chat_model,
-            google_api_key=settings.google_api_key,
+            google_api_key=settings.google_api_key.get_secret_value(),
             # Low temperature keeps answers factual/consistent rather than
             # creative, which matters more for a grounded Q&A assistant
             # than for open-ended writing.

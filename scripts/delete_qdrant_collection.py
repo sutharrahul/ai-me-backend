@@ -18,7 +18,7 @@ settings = get_settings()
 
 client = QdrantClient(
     url=settings.qdrant_url,
-    api_key=settings.qdrant_api_key or None,
+    api_key=settings.qdrant_api_key.get_secret_value() or None,
     check_compatibility=False,
 )
 

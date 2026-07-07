@@ -52,7 +52,7 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
     def __init__(self, settings: Settings):
         self._client = GoogleGenerativeAIEmbeddings(
             model=settings.gemini_embedding_model,
-            google_api_key=settings.google_api_key,
+            google_api_key=settings.google_api_key.get_secret_value(),
         )
         # NOTE: `output_dimensionality` must be passed per-call, not to the
         # constructor - the constructor silently ignores it.

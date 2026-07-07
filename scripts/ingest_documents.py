@@ -100,7 +100,7 @@ def main() -> None:
             "OPENAI_API_KEY is not set. Configure backend/.env before ingesting."
         )
         raise SystemExit(1)
-    if settings.embedding_provider == "gemini" and not settings.google_api_key:
+    if settings.embedding_provider == "gemini" and not settings.google_api_key.get_secret_value():
         logger.error(
             "GOOGLE_API_KEY is not set. Configure backend/.env before ingesting."
         )
