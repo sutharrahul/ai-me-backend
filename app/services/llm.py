@@ -1,16 +1,12 @@
-"""Chat completion wrapper used to generate grounded answers.
+"""LLM client for the portfolio chatbot.
 
-This is the last step of the RAG pipeline: given a user's question and the
-chunks retrieved from the vector store, ask an LLM to produce a natural-
-language answer that's grounded in that retrieved context (rather than the
-model's own possibly-outdated or made-up knowledge). `LLMClient` is an
-abstraction over the actual model provider, so `RagPipeline` never needs
-to know which one is active.
+Wraps Google Gemini's chat model (via LangChain) and generates grounded
+answers: given a user's question and the chunks retrieved from the vector
+store, it produces a natural-language answer backed only by that retrieved
+context.
 """
 
 from __future__ import annotations
-
-from abc import ABC, abstractmethod
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -19,28 +15,14 @@ from app.config import Settings
 from app.services.vector_store import ScoredChunk
 
 
-class LLMClient(ABC):
-    """Interface every chat/completion backend must implement. Add a new
-    provider (e.g. Anthropic) by subclassing this and wiring it into
-    `get_llm_client` below."""
-
-    @abstractmethod
-    def generate_answer(self, question: str, chunks: list[ScoredChunk]) -> str:
-        """Generate a grounded answer for `question` using `chunks` as
-        context. Use case: called once per user message, after the vector
-        store has already returned the top-k most relevant chunks."""
-
-
-class GeminiLLMClient(LLMClient):
-    """Chat completion backed by Google's Gemini models via LangChain.
-    This is the only supported provider (`llm_provider="gemini"` in config)."""
+class GeminiLLMClient:
+    """Chat completion backed by Google's Gemini model via LangChain."""
 
     def __init__(self, settings: Settings):
         client_kwargs: dict[str, object] = {
             "model": settings.gemini_chat_model,
-            # Low temperature keeps answers factual/consistent rather than
-            # creative, which matters more for a grounded Q&A assistant
-            # than for open-ended writing.
+            # Low temperature keeps answers factual and consistent rather than
+            # creative — important for a grounded Q&A assistant.
             "temperature": 0.2,
         }
         api_key = settings.resolved_google_api_key()
@@ -50,11 +32,11 @@ class GeminiLLMClient(LLMClient):
         self._system_prompt = settings.system_prompt
 
     def generate_answer(self, question: str, chunks: list[ScoredChunk]) -> str:
+        """Generate a grounded answer for `question` using `chunks` as context.
+        Called once per user message after the vector store returns the top-k
+        most relevant chunks."""
         context = _build_context(chunks)
         messages = [
-            # The system prompt sets the assistant's persona/rules (see
-            # `settings.system_prompt`); the human message carries the
-            # actual retrieved context + question for this turn.
             SystemMessage(content=self._system_prompt),
             HumanMessage(
                 content=(
@@ -66,24 +48,21 @@ class GeminiLLMClient(LLMClient):
         ]
         response = self._client.invoke(messages)
         content = response.content
-        # LangChain's `.content` is typed as `str | list`, so normalize to
-        # a plain string before returning it through the API.
+        # LangChain's `.content` is typed as `str | list`, so normalise to a
+        # plain string before returning it through the API.
         return content if isinstance(content, str) else str(content)
 
 
-def get_llm_client(settings: Settings) -> LLMClient:
-    """Factory that returns the configured LLM client. Currently only Gemini
-    is supported. See `dependencies.py` for where this is called."""
+def get_llm_client(settings: Settings) -> GeminiLLMClient:
+    """Returns the LLM client. Used by `dependencies.py` for DI."""
     return GeminiLLMClient(settings)
 
 
 def _build_context(chunks: list[ScoredChunk]) -> str:
-    """Formats retrieved chunks into a single text block to embed in the
-    prompt, each one labeled with its source filename and chunk index so
-    the model (and a human reading the prompt while debugging) can tell
-    where each piece of context came from. Returns a placeholder string if
-    no chunks were retrieved, so the LLM is explicitly told there's no
-    context rather than silently getting an empty prompt section."""
+    """Formats retrieved chunks into a single text block for the prompt,
+    each labelled with its source filename and chunk index. Returns a
+    placeholder string if no chunks were retrieved so the LLM is explicitly
+    told there's no context rather than getting an empty prompt section."""
     if not chunks:
         return "(no relevant context found)"
 
