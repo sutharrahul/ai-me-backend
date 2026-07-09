@@ -69,6 +69,10 @@ class Settings(BaseSettings):
     # consistent; changing this requires deleting and recreating the collection.
     embedding_dimensions: int = 768
 
+
+
+    # ------------------------------------------------------------------ DB_URI
+    db_uri:SecretStr = SecretStr("")
     # ------------------------------------------------------------------ Qdrant
     # Matches `docker-compose.yml`'s `qdrant` service, so
     # `docker compose up -d qdrant` + these defaults "just work" for local dev.
