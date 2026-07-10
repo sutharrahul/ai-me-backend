@@ -31,26 +31,37 @@ class GeminiLLMClient:
         self._client = ChatGoogleGenerativeAI(**client_kwargs)
         self._system_prompt = settings.system_prompt
 
+    def invoke(self, system_prompt: str, user_query: str) -> str:
+        message = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_query),
+        ]
+
+        response = self._client.invoke(message)
+        content = response.content
+        return content if isinstance(content, str) else str(content)
+
+  
     def generate_answer(self, question: str, chunks: list[ScoredChunk]) -> str:
         """Generate a grounded answer for `question` using `chunks` as context.
         Called once per user message after the vector store returns the top-k
+
         most relevant chunks."""
-        context = _build_context(chunks)
-        messages = [
-            SystemMessage(content=self._system_prompt),
-            HumanMessage(
-                content=(
-                    f"Context:\n{context}\n\n"
-                    f"Question: {question}\n\n"
-                    "Answer the question using only the context above."
-                )
+        context = _build_context(chunks=chunks)
+        return self.invoke(
+            system_prompt=self._system_prompt,
+            user_query=(
+                f"Context:\n{context}\n\n"
+                f"Question: {question}\n\n"
+                "Answer the question using only the context above."
             ),
-        ]
-        response = self._client.invoke(messages)
-        content = response.content
-        # LangChain's `.content` is typed as `str | list`, so normalise to a
-        # plain string before returning it through the API.
-        return content if isinstance(content, str) else str(content)
+        )
+
+    def generate_response(self, user_query: str, system_prompt: str) -> str:
+        return self.invoke(
+            system_prompt=system_prompt,
+            user_query=user_query,
+        )
 
 
 def get_llm_client(settings: Settings) -> GeminiLLMClient:
