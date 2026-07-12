@@ -64,11 +64,6 @@ class GeminiLLMClient:
         )
 
 
-def get_llm_client(settings: Settings) -> GeminiLLMClient:
-    """Returns the LLM client. Used by `dependencies.py` for DI."""
-    return GeminiLLMClient(settings)
-
-
 def _build_context(chunks: list[ScoredChunk]) -> str:
     """Formats retrieved chunks into a single text block for the prompt,
     each labelled with its source filename and chunk index. Returns a

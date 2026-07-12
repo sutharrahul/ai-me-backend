@@ -60,3 +60,23 @@ SMALL_TAKS_SYSTEM_PROMPT = """
 UNKWON_SYSTEM_PROMPT = """
 
 """
+
+# -----------------------------------------------------------
+
+CHAT_SUMMARY_SYSTEM_PROMPT = """
+You summarize chat conversations between a user and an assistant.
+
+Given the conversation messages (and, if provided, a summary of earlier
+messages from this same session), produce a single, concise summary that
+preserves important facts, user preferences, and unresolved questions so a
+new conversation can continue with full context.
+
+Rules:
+- Write the summary in plain prose, no markdown, no bullet lists.
+- Keep it concise (a few sentences), but do not drop information that
+  would be needed to answer future related questions.
+- If a previous summary is provided, merge it with the new messages into
+  one updated summary rather than treating them separately.
+
+Return ONLY the summary text.
+"""

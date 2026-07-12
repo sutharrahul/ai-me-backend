@@ -13,7 +13,6 @@ from app.config import Settings, get_settings
 from app.core.rag_pipeline import RagPipeline
 from app.services.cache import QueryCache, get_query_cache
 from app.services.embeddings import GeminiEmbeddingProvider, get_embedding_provider
-from app.services.llm import get_llm_client
 from app.services.vector_store import QdrantVectorStore, get_vector_store
 
 
@@ -47,6 +46,5 @@ def get_rag_pipeline() -> RagPipeline:
         settings=settings,
         embedding_provider=get_embedding_provider_instance(),
         vector_store=get_vector_store_instance(),
-        llm_client=get_llm_client(settings),
         query_cache=get_query_cache_instance(),
     )

@@ -1,25 +1,7 @@
 from sqlalchemy.orm import Session
-from .schema_modal import Chat, User_Session
-
-
-def get_or_create_session(db: Session, session_id: str, ip_address: str):
-    session = (
-        db.query(User_Session).filter(User_Session.session_id == session_id).first()
-    )
-
-    if session:
-        return session
-
-    session = User_Session(
-        session_id=session_id,
-        ip_address=ip_address,
-    )
-
-    db.add(session)
-    db.commit()
-    db.refresh(session)
-
-    return session
+from .schema_modal import Chat
+from app.services.llm import GeminiLLMClient
+from app.graph.system_prompt import CHAT_SUMMARY_SYSTEM_PROMPT
 
 
 def get_active_chat(db: Session, session_id: str):
@@ -34,7 +16,29 @@ def get_active_chat(db: Session, session_id: str):
 MAX_MESSAGE = 20
 
 
-def save_message(db: Session, session_id: str, message: dict):
+def _summarize_chat(
+    llm_client: GeminiLLMClient,
+    messages: list[dict],
+    previous_summary: str | None,
+) -> str:
+    """Summarizes a chat's user/assistant messages into a single summary,
+    folding in `previous_summary` (the summary carried over from the chat
+    before this one, if any) so context isn't lost across rotations."""
+    conversation = "\n".join(f"{m['role']}: {m['message']}" for m in messages)
+
+    user_query = (
+        f"Previous summary:\n{previous_summary}\n\nNew messages:\n{conversation}"
+        if previous_summary
+        else f"Conversation:\n{conversation}"
+    )
+
+    return llm_client.generate_response(
+        system_prompt=CHAT_SUMMARY_SYSTEM_PROMPT,
+        user_query=user_query,
+    )
+
+
+def save_message(db: Session, session_id: str, message: dict, llm_client: GeminiLLMClient):
     # get active chat
     active_chat = get_active_chat(db, session_id)
 
@@ -59,10 +63,11 @@ def save_message(db: Session, session_id: str, message: dict):
         return active_chat
     else:
 
-        # extract all chat from DB, give to LLM for chat_summary
-        all_chat_messages, previous_summary = (active_chat.messages, active_chat.previous_chat_summary)
-        # I give all_chat_message list to LLM for chat sumamry
-        chat_summary = None
+        chat_summary = _summarize_chat(
+            llm_client=llm_client,
+            messages=active_chat.messages,
+            previous_summary=active_chat.previous_chat_summary,
+        )
 
         active_chat.is_active = False
 

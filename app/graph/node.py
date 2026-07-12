@@ -1,6 +1,6 @@
 from .state import AgentState
-from services.llm import GeminiLLMClient
-from system_prompt import (
+from app.services.llm import GeminiLLMClient
+from .system_prompt import (
     INTENT_SYSTEM_PROMPT,
     GREETING_SYSTEM_PROMPT,
     SMALL_TAKS_SYSTEM_PROMPT,
@@ -92,7 +92,12 @@ def store_chat(state: AgentState):
         ("user", state["user_query"]),
         ("assistant", state["llm_response"]),
     ):
-        save_message(db=db, session_id=session_id, message={"role": role, "message": content})
+        save_message(
+            db=db,
+            session_id=session_id,
+            message={"role": role, "message": content},
+            llm_client=llm_bot,
+        )
 
     return state
 
