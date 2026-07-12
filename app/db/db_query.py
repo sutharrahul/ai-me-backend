@@ -1,7 +1,24 @@
 from sqlalchemy.orm import Session
-from .schema_modal import Chat
+from .schema_modal import Chat, User_Session
 from app.services.llm import GeminiLLMClient
 from app.graph.system_prompt import CHAT_SUMMARY_SYSTEM_PROMPT
+
+
+def get_or_create_session(db: Session, session_id: str, ip_address: str) -> User_Session:
+    session = (
+        db.query(User_Session).filter(User_Session.session_id == session_id).first()
+    )
+
+    if session:
+        return session
+
+    session = User_Session(session_id=session_id, ip_address=ip_address)
+
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+
+    return session
 
 
 def get_active_chat(db: Session, session_id: str):
@@ -38,11 +55,18 @@ def _summarize_chat(
     )
 
 
-def save_message(db: Session, session_id: str, message: dict, llm_client: GeminiLLMClient):
+def save_message(
+    db: Session,
+    session_id: str,
+    message: dict,
+    llm_client: GeminiLLMClient,
+    ip_address: str,
+):
     # get active chat
     active_chat = get_active_chat(db, session_id)
 
     if active_chat is None:
+        get_or_create_session(db, session_id, ip_address)
         chat = Chat(session_id=session_id, messages=[message])
 
         db.add(chat)

@@ -11,3 +11,4 @@ class AgentState(TypedDict):
     top_k: int
     session_id: str
     db: Session
+    ip_address: str

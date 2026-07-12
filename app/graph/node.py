@@ -3,8 +3,8 @@ from app.services.llm import GeminiLLMClient
 from .system_prompt import (
     INTENT_SYSTEM_PROMPT,
     GREETING_SYSTEM_PROMPT,
-    SMALL_TAKS_SYSTEM_PROMPT,
-    UNKWON_SYSTEM_PROMPT,
+    SMALL_TALK_SYSTEM_PROMPT,
+    UNKNOWN_SYSTEM_PROMPT,
 )
 from app.config import Settings
 from app.services.embeddings import GeminiEmbeddingProvider
@@ -57,7 +57,7 @@ def greeting(state: AgentState):
 
 def small_talks(state: AgentState):
     greet = llm_bot.generate_response(
-        system_prompt=SMALL_TAKS_SYSTEM_PROMPT, user_query=state["user_query"]
+        system_prompt=SMALL_TALK_SYSTEM_PROMPT, user_query=state["user_query"]
     )
     state["llm_response"] = greet
 
@@ -66,7 +66,7 @@ def small_talks(state: AgentState):
 
 def unknown(state: AgentState):
     renponse = llm_bot.generate_response(
-        system_prompt=UNKWON_SYSTEM_PROMPT, user_query=state["user_query"]
+        system_prompt=UNKNOWN_SYSTEM_PROMPT, user_query=state["user_query"]
     )
     state["llm_response"] = renponse
 
@@ -87,6 +87,7 @@ def portfolio(state: AgentState):
 def store_chat(state: AgentState):
     db = state["db"]
     session_id = state["session_id"]
+    ip_address = state["ip_address"]
 
     for role, content in (
         ("user", state["user_query"]),
@@ -97,6 +98,7 @@ def store_chat(state: AgentState):
             session_id=session_id,
             message={"role": role, "message": content},
             llm_client=llm_bot,
+            ip_address=ip_address,
         )
 
     return state

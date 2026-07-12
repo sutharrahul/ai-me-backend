@@ -5,6 +5,8 @@ generated answer with its supporting sources.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from langchain_google_genai.chat_models import ChatGoogleGenerativeAIError
+from slowapi.util import get_remote_address
 
 from app.config import get_settings
 from app.core.rate_limiter import limiter
@@ -46,6 +48,7 @@ def query(
                 "session_id": payload.session_id,
                 "user_query": payload.question,
                 "top_k": payload.top_k,
+                "ip_address": get_remote_address(request),
             }
         )
 
@@ -65,6 +68,17 @@ def query(
             sources=sources,
         )
 
+    except ChatGoogleGenerativeAIError as exc:
+        logger.exception("Gemini API error (top_k=%d)", payload.top_k)
+        if getattr(exc.__cause__, "code", None) == 429:
+            raise HTTPException(
+                status_code=429,
+                detail="The AI assistant has hit its usage limit for now. Please try again in a bit.",
+            ) from exc
+        raise HTTPException(
+            status_code=502,
+            detail="The AI assistant is temporarily unavailable. Please try again shortly.",
+        ) from exc
     except Exception as exc:  # pragma: no cover - surfaced to the client
         logger.exception("Failed to answer question (top_k=%d)", payload.top_k)
         raise HTTPException(status_code=500, detail=str(exc)) from exc

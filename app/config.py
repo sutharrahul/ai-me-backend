@@ -35,7 +35,12 @@ class Settings(BaseSettings):
 
     # ------------------------------------------------------------------ General
     app_name: str = "Portfolio Chatbot"
-    environment: str = "development"
+    # Defaults to "production" (not "development") so that if a deploy
+    # platform ever forgets to set ENVIRONMENT, the app fails safe toward
+    # Gemini rather than silently trying to reach a local Ollama that
+    # doesn't exist there. Local dev's `.env` explicitly sets
+    # ENVIRONMENT=development to opt into the Ollama default instead.
+    environment: str = "production"
     api_prefix: str = "/api"
 
     # ------------------------------------------------------------------ CORS
@@ -68,6 +73,19 @@ class Settings(BaseSettings):
     # Pin to a fixed dimension so the Qdrant collection vector size is
     # consistent; changing this requires deleting and recreating the collection.
     embedding_dimensions: int = 768
+
+    # ------------------------------------------------------------------ Ollama (local dev)
+    # llm_provider defaults to "gemini" in production and "ollama" in every
+    # other environment (see `apply_provider_defaults` below) — set it
+    # explicitly here (or via LLM_PROVIDER) to override that. embedding_provider
+    # always defaults to "gemini" regardless of environment: switching it
+    # requires re-ingesting documents, since embeddings from a different model
+    # aren't comparable to what's already stored even at the same dimension.
+    llm_provider: str | None = None
+    embedding_provider: str = "gemini"
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_chat_model: str = "gemma3:4b"
+    ollama_embedding_model: str = "nomic-embed-text"
 
 
 
@@ -108,7 +126,7 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------ Rate limiting
     # Max questions a single IP can ask per day. Protects the paid Gemini API
     # from being drained by bots (no auth is required to use the chat endpoint).
-    daily_question_limit: int = 20
+    daily_question_limit: int = 10
 
     # ------------------------------------------------------------------ Redis query cache
     # When two visitors ask the same question the second one is served from
@@ -153,10 +171,23 @@ class Settings(BaseSettings):
         )
 
     @model_validator(mode="after")
+    def apply_provider_defaults(self) -> Self:
+        """Defaults llm_provider to "gemini" in production and "ollama"
+        everywhere else, when LLM_PROVIDER isn't set explicitly — so
+        production always uses Gemini and local dev/testing uses a local
+        Ollama model without needing to remember to flip a setting."""
+        if self.llm_provider is None:
+            self.llm_provider = "gemini" if self.environment == "production" else "ollama"
+        return self
+
+    @model_validator(mode="after")
     def validate_google_api_key(self) -> Self:
         """Fail fast at startup with a clear message when the Gemini API key
-        is missing, instead of a cryptic LangChain error on the first request."""
-        if not self.resolved_google_api_key():
+        is missing, instead of a cryptic LangChain error on the first request.
+        Skipped entirely when both providers are set to "ollama", since no
+        Gemini call is ever made in that configuration."""
+        uses_gemini = "gemini" in (self.llm_provider, self.embedding_provider)
+        if uses_gemini and not self.resolved_google_api_key():
             raise ValueError(
                 "GOOGLE_API_KEY (or GEMINI_API_KEY) must be set. "
                 "Get a free key at https://aistudio.google.com/apikey and "
