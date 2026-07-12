@@ -35,11 +35,8 @@ class Settings(BaseSettings):
 
     # ------------------------------------------------------------------ General
     app_name: str = "Portfolio Chatbot"
-    # Defaults to "production" (not "development") so that if a deploy
-    # platform ever forgets to set ENVIRONMENT, the app fails safe toward
-    # Gemini rather than silently trying to reach a local Ollama that
-    # doesn't exist there. Local dev's `.env` explicitly sets
-    # ENVIRONMENT=development to opt into the Ollama default instead.
+    # Informational only (reported by /health, tunes SQL echo) — it no longer
+    # selects the LLM provider. See `llm_provider` below.
     environment: str = "production"
     api_prefix: str = "/api"
 
@@ -75,13 +72,14 @@ class Settings(BaseSettings):
     embedding_dimensions: int = 768
 
     # ------------------------------------------------------------------ Ollama (local dev)
-    # llm_provider defaults to "gemini" in production and "ollama" in every
-    # other environment (see `apply_provider_defaults` below) — set it
-    # explicitly here (or via LLM_PROVIDER) to override that. embedding_provider
-    # always defaults to "gemini" regardless of environment: switching it
-    # requires re-ingesting documents, since embeddings from a different model
-    # aren't comparable to what's already stored even at the same dimension.
-    llm_provider: str | None = None
+    # Both providers default to "gemini". Ollama is opt-in only: set
+    # LLM_PROVIDER=ollama in a local .env to use it. Never inferred from
+    # ENVIRONMENT — a deploy platform with a stray ENVIRONMENT value would
+    # otherwise silently point the app at a localhost Ollama that isn't there.
+    # embedding_provider is opt-in for a further reason: switching it requires
+    # re-ingesting documents, since embeddings from a different model aren't
+    # comparable to what's already stored even at the same dimension.
+    llm_provider: str = "gemini"
     embedding_provider: str = "gemini"
     ollama_base_url: str = "http://localhost:11434"
     ollama_chat_model: str = "gemma3:4b"
@@ -171,13 +169,20 @@ class Settings(BaseSettings):
         )
 
     @model_validator(mode="after")
-    def apply_provider_defaults(self) -> Self:
-        """Defaults llm_provider to "gemini" in production and "ollama"
-        everywhere else, when LLM_PROVIDER isn't set explicitly — so
-        production always uses Gemini and local dev/testing uses a local
-        Ollama model without needing to remember to flip a setting."""
-        if self.llm_provider is None:
-            self.llm_provider = "gemini" if self.environment == "production" else "ollama"
+    def reject_ollama_in_production(self) -> Self:
+        """Ollama runs as a separate local process, so it can never be reached
+        from a managed deploy (Render, Fly, …) — selecting it there yields a
+        connection-refused on every request. Fail at startup with a clear
+        message instead of serving 500s."""
+        if self.environment == "production" and "ollama" in (
+            self.llm_provider,
+            self.embedding_provider,
+        ):
+            raise ValueError(
+                "Ollama cannot be used when ENVIRONMENT=production: it needs a "
+                "local Ollama server, which does not exist on a deploy platform. "
+                "Set LLM_PROVIDER=gemini and EMBEDDING_PROVIDER=gemini."
+            )
         return self
 
     @model_validator(mode="after")
