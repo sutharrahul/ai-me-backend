@@ -9,6 +9,7 @@ from system_prompt import (
 from app.config import Settings
 from app.services.embeddings import GeminiEmbeddingProvider
 from app.services.vector_store import QdrantVectorStore
+from app.db.db_query import save_message
 
 settings = Settings()
 llm_bot = GeminiLLMClient(settings=settings)
@@ -83,5 +84,15 @@ def portfolio(state: AgentState):
     return state
 
 
-def store_chat():
-    pass
+def store_chat(state: AgentState):
+    db = state["db"]
+    session_id = state["session_id"]
+
+    for role, content in (
+        ("user", state["user_query"]),
+        ("assistant", state["llm_response"]),
+    ):
+        save_message(db=db, session_id=session_id, message={"role": role, "message": content})
+
+    return state
+

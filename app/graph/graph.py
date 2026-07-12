@@ -30,4 +30,4 @@ graph_builder.add_edge("retrieve_chunks", "portfolio")
 graph_builder.add_edge("portfolio", "store_chat")
 graph_builder.add_edge("store_chat", END)
 
-app = graph_builder.compile()
+graph = graph_builder.compile()

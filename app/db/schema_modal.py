@@ -39,7 +39,7 @@ class Chat(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     is_active = Column(Boolean, default=True, nullable=False)
 
-    session = relationship("Session", back_populates="chats")
+    session = relationship("User_Session", back_populates="chats")
 
 
 class User_Session(Base):

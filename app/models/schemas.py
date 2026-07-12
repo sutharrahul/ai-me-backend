@@ -17,7 +17,7 @@ class QueryRequest(BaseModel):
     controls how many retrieved chunks are used as context (capped at 20 to
     keep prompts reasonably sized).
     """
-
+    session_id: str
     question: str = Field(..., min_length=1, max_length=1000)
     top_k: int = Field(default=4, ge=1, le=20)
 

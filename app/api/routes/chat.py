@@ -1,20 +1,18 @@
-"""Chat/query endpoint - the core RAG API that the frontend chat UI calls.
+"""Chat/query endpoint for the portfolio chatbot.
 
-This is intentionally a single, simple endpoint: given a question, run the
-full retrieve-then-generate pipeline and return an answer plus the sources
-used. All the actual RAG logic lives in `RagPipeline`
-(`app/core/rag_pipeline.py`) - this route just validates the request,
-delegates to the pipeline, and translates failures into HTTP errors.
+Validates incoming requests, invokes the LangGraph workflow, and returns the
+generated answer with its supporting sources.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.config import get_settings
-from app.core.rag_pipeline import RagPipeline
 from app.core.rate_limiter import limiter
-from app.dependencies import get_rag_pipeline
-from app.models.schemas import QueryRequest, QueryResponse
+from app.models.schemas import QueryRequest, QueryResponse, Source
 from app.utils.logger import get_logger
+from sqlalchemy.orm import Session
+from app.db.db_connection import get_db
+from app.graph.graph import graph
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 logger = get_logger(__name__)
@@ -31,28 +29,42 @@ _DAILY_LIMIT = f"{get_settings().daily_question_limit}/day"
 def query(
     request: Request,
     payload: QueryRequest,
-    pipeline: RagPipeline = Depends(get_rag_pipeline),
+    db: Session = Depends(get_db),
 ) -> QueryResponse:
-    """Answers a user's question using retrieval-augmented generation.
+    """
+    Answers a user's question using the LangGraph workflow.
 
-    Flow: embed the question -> find the most similar chunks in the vector
-    store -> ask the LLM to answer using only those chunks as context ->
-    return the answer plus the sources so the UI can show citations.
+    The graph handles intent classification, retrieval (when needed), response
+    generation, and chat persistence before returning the answer and sources.
 
-    Rate limited per-IP (see `core/rate_limiter.py`) to `daily_question_limit`
-    questions/day, since there's no auth to otherwise gate usage per-user -
-    `request` (the raw Starlette request) is what `@limiter.limit(...)`
-    inspects to identify the caller's IP; `payload` is the validated
-    request body.
-
-    Any exception from the pipeline (e.g. Postgres unreachable, Gemini API
-    error) is caught here and turned into a 500 with the error message,
-    rather than letting FastAPI's default handler return an opaque error -
-    this makes debugging config/connectivity issues much easier from the
-    frontend or curl.
+    Unexpected errors are logged and returned as HTTP 500 responses.
     """
     try:
-        return pipeline.answer_query(payload.question, top_k=payload.top_k)
+        result = graph.invoke(
+            {
+                "db": db,
+                "session_id": payload.session_id,
+                "user_query": payload.question,
+                "top_k": payload.top_k,
+            }
+        )
+
+        sources = [
+            Source(
+                document_id=chunk.document_id,
+                filename=chunk.filename,
+                chunk_index=chunk.chunk_index,
+                content=chunk.content,
+                score=chunk.score,
+            )
+            for chunk in result.get("chunks", [])
+        ]
+
+        return QueryResponse(
+            answer=result["llm_response"],
+            sources=sources,
+        )
+
     except Exception as exc:  # pragma: no cover - surfaced to the client
         logger.exception("Failed to answer question (top_k=%d)", payload.top_k)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
