@@ -27,4 +27,11 @@ RUN mkdir -p data/seed
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Render (and most PaaS platforms) assign the actual listen port via the
+# $PORT env var at runtime and route traffic/health checks to it - a
+# hardcoded --port here would make the container unreachable even though
+# it "runs" successfully. Falls back to 8000 for local `docker run`.
+# Shell form (not exec form) so $PORT is actually expanded; `exec` hands
+# off to uvicorn as PID 1 so it receives SIGTERM directly for a clean
+# shutdown, instead of an intermediate shell swallowing the signal.
+CMD exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
