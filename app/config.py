@@ -42,7 +42,7 @@ class Settings(BaseSettings):
 
     # ------------------------------------------------------------------ CORS
     # Which frontend origin(s) may call this API from the browser.
-    cors_origins: list[str] = ["http://localhost:3000"]
+    cors_origins: list[str] = ["http://localhost:3002"]
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -57,7 +57,7 @@ class Settings(BaseSettings):
         return value
 
     # ------------------------------------------------------------------ Google Gemini
-    # Get a free key at https://aistudio.google.com/apikey and set
+
     # GOOGLE_API_KEY (or GEMINI_API_KEY) in .env or your platform's env vars.
     google_api_key: SecretStr = Field(
         default=SecretStr(""),

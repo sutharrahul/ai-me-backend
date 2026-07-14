@@ -32,6 +32,7 @@ from app.db.db_query import (
     store_exchange,
 )
 from app.graph.node import classify_intent, llm_bot, retrieve_chunks, route_intent
+from app.services.llm import fix_first_person
 from app.graph.system_prompt import (
     GREETING_SYSTEM_PROMPT,
     SMALL_TALK_SYSTEM_PROMPT,
@@ -56,6 +57,31 @@ _ROUTE_SYSTEM_PROMPTS = {
     "unknown": UNKNOWN_SYSTEM_PROMPT,
 }
 
+# How many of the conversation's most recent messages (across both roles)
+# to feed back into classification/generation, so short follow-ups like
+# "yes" or "tell me more" are understood in context. Kept small - it's
+# added to every classification and generation call in the exchange, so a
+# larger window means slower, pricier requests for context that's rarely
+# still relevant much further back.
+HISTORY_MESSAGE_LIMIT = 6
+
+# Safety-net cap (characters) for buffering the answer's opening before the
+# first bullet point - see the intro-buffering loop in `query()` below. Most
+# answers reach a bullet or paragraph break well before this; it only
+# matters for a bullet-free answer, where it bounds how long streaming is
+# delayed before flushing regardless.
+INTRO_BUFFER_MAX_CHARS = 300
+
+
+def _intro_is_complete(buffer: str) -> bool:
+    """True once `buffer` has reached a safe point to stop buffering and
+    flush - the start of a markdown bullet list or a paragraph break.
+    Every observed case of the model drifting into third person (see
+    `fix_first_person`) happens in the answer's opening sentence(s), never
+    inside a bullet list, so once we're past that opening we can stream
+    the rest through untouched."""
+    return "\n*" in buffer or "\n-" in buffer or "\n\n" in buffer
+
 
 @router.post("/query")
 @limiter.limit(_DAILY_LIMIT)
@@ -78,7 +104,12 @@ def query(
 
     def event_stream():
         try:
-            state = {"user_query": payload.question}
+            active_chunk = get_active_chunk(db, conversation_id=payload.chat_id)
+            history = (
+                active_chunk.messages[-HISTORY_MESSAGE_LIMIT:] if active_chunk else []
+            )
+
+            state = {"user_query": payload.question, "history": history}
             classify_intent(state)
             route = route_intent(state)
 
@@ -97,18 +128,46 @@ def query(
                     for chunk in state["chunks"]
                 ]
                 token_iter = llm_bot.stream_answer(
-                    question=payload.question, chunks=state["chunks"]
+                    question=payload.question, chunks=state["chunks"], history=history
                 )
             else:
                 token_iter = llm_bot.stream_response(
                     user_query=payload.question,
                     system_prompt=_ROUTE_SYSTEM_PROMPTS[route],
+                    history=history,
                 )
 
+            # The model occasionally drifts into third person ("Rahul
+            # has...") despite PORTFOLIO_SYSTEM_PROMPT's instructions,
+            # confined to the answer's opening sentence(s) - buffer just
+            # that opening (not visibly streamed yet), run it through
+            # `fix_first_person` once complete, then stream everything
+            # after it through untouched at full token-by-token speed.
             full_answer = ""
+            intro_buffer = ""
+            intro_flushed = False
+
             for token in token_iter:
-                full_answer += token
-                yield TokenEvent(content=token).model_dump_json() + "\n"
+                if not intro_flushed:
+                    intro_buffer += token
+                    if (
+                        _intro_is_complete(intro_buffer)
+                        or len(intro_buffer) > INTRO_BUFFER_MAX_CHARS
+                    ):
+                        corrected = fix_first_person(intro_buffer)
+                        full_answer += corrected
+                        yield TokenEvent(content=corrected).model_dump_json() + "\n"
+                        intro_flushed = True
+                else:
+                    full_answer += token
+                    yield TokenEvent(content=token).model_dump_json() + "\n"
+
+            if not intro_flushed:
+                # The answer ended before any checkpoint was reached (e.g.
+                # a short reply with no bullets at all) - flush it now.
+                corrected = fix_first_person(intro_buffer)
+                full_answer += corrected
+                yield TokenEvent(content=corrected).model_dump_json() + "\n"
 
             saved_chunk = store_exchange(
                 db=db,

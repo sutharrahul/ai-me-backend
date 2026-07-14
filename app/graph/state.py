@@ -12,3 +12,9 @@ class AgentState(TypedDict):
     intent: str
     chunks: list[ScoredChunk]
     top_k: int
+    # Recent prior messages ({"role": ..., "message": ...} dicts, oldest
+    # first) for the same conversation, if any - see `HISTORY_MESSAGE_LIMIT`
+    # in `app/api/routes/chat.py`. Lets classify_intent/retrieve_chunks
+    # interpret short follow-ups ("yes", "tell me more") in context instead
+    # of treating every message as a standalone, memoryless query.
+    history: list[dict]
