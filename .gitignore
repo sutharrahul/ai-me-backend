@@ -18,6 +18,12 @@ env/
 # Data (document metadata index)
 data/documents.json
 
+# Personal bio source data - already ingested into the vector DB, so the
+# live app doesn't need it in the repo; kept out of git so the raw content
+# isn't publicly visible on GitHub. Still present locally for re-ingestion.
+data/seed/about_rahul.md
+data/Knowledge Base_ Rahul Suthar (Full Stack & AI Engineer).pdf
+
 # Runtime logs
 logs/
 
