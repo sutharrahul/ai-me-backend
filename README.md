@@ -1,4 +1,4 @@
-# Portfolio Chatbot — Backend
+# 🚀 Personal Chatbot — Backend
 
 A FastAPI backend for Rahul Suthar's personal portfolio chatbot: classifies each
 message's intent, retrieves grounded context from a **Qdrant** vector store for
